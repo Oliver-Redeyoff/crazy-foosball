@@ -7,11 +7,14 @@ export function ScoreUI() {
   const phase        = useGameStore((s) => s.phase)
   const lastScorer   = useGameStore((s) => s.lastScorer)
   const resetGame    = useGameStore((s) => s.resetGame)
+  const playAgain    = useGameStore((s) => s.playAgain)
   const currentTwist = useGameStore((s) => s.currentTwist)
   const pendingTwist = useGameStore((s) => s.pendingTwist)
+  const gameMode     = useGameStore((s) => s.gameMode)
+  const winner       = useGameStore((s) => s.winner)
 
-  const activeTwist  = getTwist(currentTwist)
-  const incomingTwist = getTwist(pendingTwist)
+  const activeTwist   = gameMode === 'crazy' ? getTwist(currentTwist) : null
+  const incomingTwist = gameMode === 'crazy' ? getTwist(pendingTwist)  : null
 
   return (
     <div style={styles.root}>
@@ -62,10 +65,23 @@ export function ScoreUI() {
         </div>
       </div>
 
-      {/* Reset */}
+      {/* Back to menu */}
       <button style={styles.resetBtn} onClick={resetGame}>
-        Reset Game
+        ← Menu
       </button>
+
+      {/* Winner overlay */}
+      {winner && (
+        <div style={styles.winOverlay}>
+          <div style={styles.winEmoji}>{winner === 'left' ? '🔵' : '🔴'}</div>
+          <div style={styles.winText}>{winner === 'left' ? 'BLUE' : 'RED'} WINS!</div>
+          <div style={styles.winScore}>{scoreLeft} — {scoreRight}</div>
+          <div style={styles.winBtns}>
+            <button style={styles.winBtnPrimary} onClick={playAgain}>Play Again</button>
+            <button style={styles.winBtnSecondary} onClick={resetGame}>← Menu</button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -209,5 +225,58 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 13,
     cursor: 'pointer',
     backdropFilter: 'blur(4px)',
+  },
+  winOverlay: {
+    position: 'fixed' as const,
+    inset: 0,
+    display: 'flex',
+    flexDirection: 'column' as const,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 16,
+    background: 'rgba(0,0,0,0.72)',
+    backdropFilter: 'blur(8px)',
+    pointerEvents: 'all',
+    fontFamily: '"Inter", "Segoe UI", sans-serif',
+  },
+  winEmoji: { fontSize: 72, lineHeight: 1 },
+  winText: {
+    fontSize: 64,
+    fontWeight: 900,
+    color: '#fff',
+    letterSpacing: '0.06em',
+    textShadow: '0 0 40px rgba(255,255,255,0.4)',
+  },
+  winScore: {
+    fontSize: 28,
+    fontWeight: 300,
+    color: '#aaa',
+    letterSpacing: '0.1em',
+  },
+  winBtns: {
+    marginTop: 12,
+    display: 'flex',
+    gap: 12,
+  },
+  winBtnPrimary: {
+    padding: '14px 36px',
+    background: '#fff',
+    color: '#000',
+    border: 'none',
+    borderRadius: 10,
+    fontSize: 16,
+    fontWeight: 700,
+    cursor: 'pointer',
+    letterSpacing: '0.04em',
+  },
+  winBtnSecondary: {
+    padding: '14px 24px',
+    background: 'rgba(255,255,255,0.1)',
+    color: '#fff',
+    border: '1px solid rgba(255,255,255,0.2)',
+    borderRadius: 10,
+    fontSize: 16,
+    fontWeight: 600,
+    cursor: 'pointer',
   },
 }

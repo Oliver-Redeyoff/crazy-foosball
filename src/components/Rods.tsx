@@ -4,7 +4,7 @@ import { RigidBody, RapierRigidBody, CuboidCollider } from '@react-three/rapier'
 import * as THREE from 'three'
 import { TABLE } from './Table'
 import { ballPos, ballVel } from '../ballState'
-import { useGameStore } from '../store'
+import { useGameStore, type Difficulty } from '../store'
 
 const SPIN_LIMIT   = Math.PI * 0.55
 const SLIDE_SENS   = 0.008
@@ -14,19 +14,19 @@ const ROD_Y = 0.84
 
 // Interleaved layout: Red GK · Blue FWD · Red MID · Blue MID · Red FWD · Blue GK
 // Red attacks +Z, Blue attacks -Z
-const HL    = TABLE.length / 2   // 2.5
-const S     = 0.6
-const GK_Z  = HL - S             // 1.9
-const MID_Z = (HL + S / 2) / 2  // 1.4
-const FWD_Z = S                  // 0.6
+const PADDED_LENGTH    = TABLE.length - 1   // 2.5
+// const S     = 0.6
+// const GK_Z  = HL - S             // 1.9
+// const MID_Z = (HL + S / 2) / 2  // 1.4
+// const FWD_Z = S                  // 0.6
 
 const RODS = [
-  { z: -GK_Z,  team: 'right' as const, count: 1 }, // Red GK  (defends −Z goal)
-  { z: -MID_Z, team: 'left'  as const, count: 2 }, // Blue FWD
-  { z: -FWD_Z, team: 'right' as const, count: 3 }, // Red MID
-  { z:  FWD_Z, team: 'left'  as const, count: 3 }, // Blue MID
-  { z:  MID_Z, team: 'right' as const, count: 2 }, // Red FWD
-  { z:  GK_Z,  team: 'left'  as const, count: 1 }, // Blue GK (defends +Z goal)
+  { z: PADDED_LENGTH * 0/5 - PADDED_LENGTH / 2,  team: 'right' as const, count: 1 }, // Red GK  (defends −Z goal)
+  { z: PADDED_LENGTH * 1/5 - PADDED_LENGTH / 2 , team: 'left'  as const, count: 2 }, // Blue FWD
+  { z: PADDED_LENGTH * 2/5 - PADDED_LENGTH / 2, team: 'right' as const, count: 3 }, // Red MID
+  { z: PADDED_LENGTH * 3/5 - PADDED_LENGTH / 2, team: 'left'  as const, count: 3 }, // Blue MID
+  { z: PADDED_LENGTH * 4/5 - PADDED_LENGTH / 2, team: 'right' as const, count: 2 }, // Red FWD
+  { z: PADDED_LENGTH * 5/5 - PADDED_LENGTH / 2,  team: 'left'  as const, count: 1 }, // Blue GK (defends +Z goal)
 ]
 
 const PLAYER_TEAM = 'left'  as const
@@ -39,12 +39,25 @@ const ROD_AI_IDX = (() => {
 })()
 // ROD_AI_IDX = [0, -1, 1, -1, 2, -1]
 
-// Rule-based fallback tuning
+// Map each RODS index → player rod index (0,1,2) or -1 if AI rod
+const ROD_PLAYER_IDX = (() => {
+  let p = 0
+  return RODS.map(r => r.team === PLAYER_TEAM ? p++ : -1)
+})()
+// ROD_PLAYER_IDX = [-1, 0, -1, 1, -1, 2]
+
+// Rule-based AI tuning — base values (medium difficulty)
 const AI_SLIDE_GK   = 2.5
 const AI_SLIDE_FWD  = 4.5
 const AI_SLIDE_MID  = 3.5
 const AI_KICK_Z     = 0.45
 const AI_KICK_X     = 0.32
+
+const DIFF_CFG: Record<Difficulty, { speedMul: number; kickDelay: number; predWindow: number; noise: number }> = {
+  easy:   { speedMul: 0.38, kickDelay: 0.55, predWindow: 0.15, noise: 0.45 },
+  medium: { speedMul: 1.0,  kickDelay: 0.25, predWindow: 0.60, noise: 0    },
+  hard:   { speedMul: 1.85, kickDelay: 0.08, predWindow: 1.10, noise: 0    },
+}
 
 const INNER_HALF = TABLE.width / 2 - 0.05  // 1.7
 
@@ -77,11 +90,11 @@ interface AiRodState {
 
 // ─── Kick state machine (one AI rod) ─────────────────────────────────────────
 
-function tickKick(state: AiRodState, trigger: boolean, delta: number) {
+function tickKickWithDelay(state: AiRodState, trigger: boolean, delta: number, delay: number) {
   switch (state.phase) {
     case 'idle':
       state.idleTimer += delta
-      if (state.idleTimer >= 0.25 && trigger) {
+      if (state.idleTimer >= delay && trigger) {
         state.phase = 'firing'
         state.targetSpin = -SPIN_LIMIT
         state.idleTimer = 0
@@ -104,33 +117,34 @@ function tickKick(state: AiRodState, trigger: boolean, delta: number) {
   }
 }
 
-// ─── Rule-based fallback (used while ONNX model loads) ────────────────────────
+// ─── Rule-based AI ───────────────────────────────────────────────────────────
 
-function tickRuleBasedAI(state: AiRodState, rodDef: typeof RODS[0], delta: number) {
-  const bx = ballPos.x
-  const bz = ballPos.z
-  const lim = slideLimit(rodDef.count)
-  const isGK = rodDef.count === 1
-  const speed = isGK ? AI_SLIDE_GK : rodDef.count === 3 ? AI_SLIDE_MID : AI_SLIDE_FWD
+function tickRuleBasedAI(state: AiRodState, rodDef: typeof RODS[0], delta: number, difficulty: Difficulty) {
+  const cfg   = DIFF_CFG[difficulty]
+  const bx    = ballPos.x
+  const bz    = ballPos.z
+  const lim   = slideLimit(rodDef.count)
+  const isGK  = rodDef.count === 1
+  const baseSpeed = isGK ? AI_SLIDE_GK : rodDef.count === 3 ? AI_SLIDE_MID : AI_SLIDE_FWD
+  const speed = baseSpeed * cfg.speedMul
 
   const vz = ballVel.z
   const dz = rodDef.z - bz
   const offsets = playerXOffsets(rodDef.count)
 
-  // Ball is on the +Z attack side of the rod (Red attacks +Z)
   const ballInFront = bz >= rodDef.z - 0.12
 
   let target: number
   if (!ballInFront) {
-    // Ball is behind the rod — slide to the opposite side to open a lane for it to pass
     target = Math.max(-lim, Math.min(lim, -bx))
   } else {
-    // Predictive slide: extrapolate ball X to when it reaches this rod's Z
     let predictedX = bx
-    if (Math.abs(vz) > 0.08) {
+    if (cfg.predWindow > 0 && Math.abs(vz) > 0.08) {
       const t = dz / vz
-      if (t > 0 && t < 0.6) predictedX = bx + ballVel.x * t
+      if (t > 0 && t < cfg.predWindow) predictedX = bx + ballVel.x * t
     }
+    // On easy, blur the predicted position with noise
+    if (cfg.noise > 0) predictedX += (Math.random() - 0.5) * cfg.noise * 2
 
     let bestOff = offsets[0]
     let minDist = Infinity
@@ -150,8 +164,8 @@ function tickRuleBasedAI(state: AiRodState, rodDef: typeof RODS[0], delta: numbe
   state.slide = THREE.MathUtils.lerp(state.slide, target, speed * delta)
 
   const movingAway = Math.abs(vz) > 0.4 && (vz * dz < 0)
-  const aligned = offsets.some(o => Math.abs(state.slide + o - bx) < AI_KICK_X)
-  tickKick(state, ballInFront && !movingAway && Math.abs(bz - rodDef.z) < AI_KICK_Z && aligned, delta)
+  const aligned    = offsets.some(o => Math.abs(state.slide + o - bx) < AI_KICK_X)
+  tickKickWithDelay(state, ballInFront && !movingAway && Math.abs(bz - rodDef.z) < AI_KICK_Z && aligned, delta, cfg.kickDelay)
 }
 
 // ─── RodAssembly ─────────────────────────────────────────────────────────────
@@ -206,7 +220,16 @@ function RodAssembly({
 // ─── Rods ─────────────────────────────────────────────────────────────────────
 
 export function Rods() {
-  const playerControl = useRef<Control>({ slide: 0, spin: 0 })
+  // One independent control + slide ref per player rod (FWD=0, MID=1, GK=2)
+  const playerControl0 = useRef<Control>({ slide: 0, spin: 0 })
+  const playerControl1 = useRef<Control>({ slide: 0, spin: 0 })
+  const playerControl2 = useRef<Control>({ slide: 0, spin: 0 })
+  const playerControls = [playerControl0, playerControl1, playerControl2]
+
+  const playerSlide0 = useRef(0)
+  const playerSlide1 = useRef(0)
+  const playerSlide2 = useRef(0)
+  const playerSlides = [playerSlide0, playerSlide1, playerSlide2]
 
   // One independent control ref per AI rod (GK=0, MID=1, FWD=2)
   const aiControl0 = useRef<Control>({ slide: 0, spin: 0 })
@@ -221,22 +244,24 @@ export function Rods() {
   ])
 
   const currentTwist = useGameStore((s) => s.currentTwist)
-  const reversedRef  = useRef(false)
-  useEffect(() => { reversedRef.current = currentTwist === 'reverseControls' }, [currentTwist])
+  const difficulty   = useGameStore((s) => s.difficulty)
+  const reversedRef    = useRef(false)
+  const difficultyRef  = useRef<Difficulty>('medium')
+  useEffect(() => { reversedRef.current   = currentTwist === 'reverseControls' }, [currentTwist])
+  useEffect(() => { difficultyRef.current = difficulty }, [difficulty])
 
-  // Player input state
-  const slideRef    = useRef(0)
+  // Shared player spin state (all player rods rotate together)
   const lastClientY = useRef(-1)
   const spinRef     = useRef(0)
-  const angVel      = useRef(0)   // angular velocity of player rod (rad/s)
+  const angVel      = useRef(0)
   const keyA        = useRef(false)
   const keyD        = useRef(false)
 
   useEffect(() => {
     const onMouseMove = (e: MouseEvent) => {
       if (lastClientY.current < 0) { lastClientY.current = e.clientY; return }
-      const dir = reversedRef.current ? -1 : 1
-      slideRef.current += (e.clientY - lastClientY.current) * SLIDE_SENS * dir
+      const delta = (e.clientY - lastClientY.current) * SLIDE_SENS * (reversedRef.current ? -1 : 1)
+      playerSlides.forEach(s => { s.current += delta })
       lastClientY.current = e.clientY
     }
     const onKeyDown = (e: KeyboardEvent) => {
@@ -256,27 +281,23 @@ export function Rods() {
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('keyup', onKeyUp)
     }
-  }, [])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   useFrame((_, delta) => {
     // ── Player spin — torque-based rotation with damping + spring to neutral ─
-    const TORQUE      = 300  // angular acceleration while key held (rad/s²)
-    const ANG_DAMP    = 10   // velocity damping (simulates air/friction resistance)
-    const SPRING      = 220  // spring stiffness pulling back to neutral when released
-    const SPIN_MAX    = Math.PI / 2
+    const TORQUE   = 300
+    const ANG_DAMP = 10
+    const SPRING   = 220
+    const SPIN_MAX = Math.PI / 2
 
     const dir = reversedRef.current ? -1 : 1
     if (keyA.current) angVel.current -= dir * TORQUE * delta
     if (keyD.current) angVel.current += dir * TORQUE * delta
     if (!keyA.current && !keyD.current) {
-      // Spring force pulls toward neutral
       angVel.current -= SPRING * spinRef.current * delta
     }
-    // Angular damping
     angVel.current *= Math.max(0, 1 - ANG_DAMP * delta)
-    // Integrate
     spinRef.current += angVel.current * delta
-    // Hard stop at limits — kill velocity in the hitting direction
     if (spinRef.current > SPIN_MAX) {
       spinRef.current = SPIN_MAX
       angVel.current = Math.min(0, angVel.current)
@@ -284,15 +305,24 @@ export function Rods() {
       spinRef.current = -SPIN_MAX
       angVel.current = Math.max(0, angVel.current)
     }
-    playerControl.current.slide = slideRef.current
-    playerControl.current.spin  = spinRef.current
+
+    // ── Update each player rod independently, clamped to its own limit ────
+    let pi = 0
+    for (let ri = 0; ri < RODS.length; ri++) {
+      if (RODS[ri].team !== PLAYER_TEAM) continue
+      const lim = slideLimit(RODS[ri].count)
+      playerSlides[pi].current = Math.max(-lim, Math.min(lim, playerSlides[pi].current))
+      playerControls[pi].current.slide = playerSlides[pi].current
+      playerControls[pi].current.spin  = spinRef.current
+      pi++
+    }
 
     // ── Apply AI (rule-based) ─────────────────────────────────────────────
     let aiIdx = 0
     for (let ri = 0; ri < RODS.length; ri++) {
       if (RODS[ri].team !== AI_TEAM) continue
       const state = aiState.current[aiIdx]
-      tickRuleBasedAI(state, RODS[ri], delta)
+      tickRuleBasedAI(state, RODS[ri], delta, difficultyRef.current)
       aiControls[aiIdx].current.slide = state.slide
       aiControls[aiIdx].current.spin  = state.spin
       aiIdx++
@@ -303,7 +333,8 @@ export function Rods() {
     <group>
       {RODS.map((rod, i) => {
         const aiIdx = ROD_AI_IDX[i]
-        const controlRef = rod.team === PLAYER_TEAM ? playerControl : aiControls[aiIdx]
+        const pi    = ROD_PLAYER_IDX[i]
+        const controlRef = rod.team === PLAYER_TEAM ? playerControls[pi] : aiControls[aiIdx]
         return <RodAssembly key={i} rodDef={rod} controlRef={controlRef} />
       })}
     </group>

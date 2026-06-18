@@ -8,9 +8,9 @@ export const TABLE = {
   wallH:     0.5,
   wallT:     0.15,
   floorY:    0,
-  goalW:     1.9,
-  goalDepth: 0.6,
-  goalH:     0.85,
+  goalW:     2,
+  goalDepth: 0.8,
+  goalH:     1,
 }
 
 const CEILING = 3.0
