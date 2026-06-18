@@ -1,11 +1,17 @@
 import { useGameStore } from '../store'
+import { getTwist } from '../twists'
 
 export function ScoreUI() {
-  const scoreLeft = useGameStore((s) => s.scoreLeft)
-  const scoreRight = useGameStore((s) => s.scoreRight)
-  const phase = useGameStore((s) => s.phase)
-  const lastScorer = useGameStore((s) => s.lastScorer)
-  const resetGame = useGameStore((s) => s.resetGame)
+  const scoreLeft    = useGameStore((s) => s.scoreLeft)
+  const scoreRight   = useGameStore((s) => s.scoreRight)
+  const phase        = useGameStore((s) => s.phase)
+  const lastScorer   = useGameStore((s) => s.lastScorer)
+  const resetGame    = useGameStore((s) => s.resetGame)
+  const currentTwist = useGameStore((s) => s.currentTwist)
+  const pendingTwist = useGameStore((s) => s.pendingTwist)
+
+  const activeTwist  = getTwist(currentTwist)
+  const incomingTwist = getTwist(pendingTwist)
 
   return (
     <div style={styles.root}>
@@ -22,23 +28,37 @@ export function ScoreUI() {
         </div>
       </div>
 
-      {/* Goal banner */}
+      {/* Goal + twist announcement */}
       {phase === 'scored' && (
         <div style={styles.goalBanner}>
           <div style={styles.goalText}>GOAL!</div>
           <div style={styles.goalSub}>
             {lastScorer === 'left' ? '🔵 Blue scores!' : '🔴 Red scores!'}
           </div>
+          {incomingTwist && (
+            <div style={styles.twistAnnounce}>
+              <div style={styles.twistLabel}>NEXT TWIST</div>
+              <div style={styles.twistName}>{incomingTwist.emoji} {incomingTwist.name}</div>
+              <div style={styles.twistDesc}>{incomingTwist.description}</div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Active twist badge */}
+      {activeTwist && phase === 'playing' && (
+        <div style={styles.twistBadge}>
+          {activeTwist.emoji} {activeTwist.name}
         </div>
       )}
 
       {/* Controls hint */}
       <div style={styles.controls}>
         <div style={styles.controlCol}>
-          <strong>Controls</strong>
-          <span>Click & drag a rod</span>
-          <span>← → — slide</span>
-          <span>↑ ↓ — spin</span>
+          <strong>Controls (Blue)</strong>
+          <span>Mouse ↑↓ — slide players</span>
+          <span>A — rotate backwards 90°</span>
+          <span>D — kick forward 90°</span>
         </div>
       </div>
 
@@ -102,7 +122,7 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
-    animation: 'pulse 0.4s ease',
+    gap: 8,
   },
   goalText: {
     fontSize: 56,
@@ -110,11 +130,52 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#facc15',
     textShadow: '0 0 30px rgba(250,204,21,0.8)',
     letterSpacing: '0.05em',
+    lineHeight: 1,
   },
   goalSub: {
     fontSize: 20,
     color: '#fff',
-    marginTop: -4,
+  },
+  twistAnnounce: {
+    marginTop: 8,
+    display: 'flex',
+    flexDirection: 'column' as const,
+    alignItems: 'center',
+    background: 'rgba(0,0,0,0.6)',
+    border: '2px solid rgba(255,255,255,0.2)',
+    borderRadius: 12,
+    padding: '12px 28px',
+    backdropFilter: 'blur(8px)',
+  },
+  twistLabel: {
+    fontSize: 11,
+    fontWeight: 700,
+    letterSpacing: '0.2em',
+    color: '#aaa',
+    textTransform: 'uppercase' as const,
+  },
+  twistName: {
+    fontSize: 32,
+    fontWeight: 900,
+    color: '#fff',
+    textShadow: '0 0 20px rgba(255,255,255,0.5)',
+    letterSpacing: '0.05em',
+  },
+  twistDesc: {
+    fontSize: 14,
+    color: '#ccc',
+    marginTop: 2,
+  },
+  twistBadge: {
+    marginTop: 12,
+    background: 'rgba(255,255,255,0.12)',
+    border: '1px solid rgba(255,255,255,0.2)',
+    borderRadius: 20,
+    padding: '4px 14px',
+    fontSize: 13,
+    fontWeight: 600,
+    color: '#fff',
+    backdropFilter: 'blur(4px)',
   },
   controls: {
     position: 'fixed' as const,
