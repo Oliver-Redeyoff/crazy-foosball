@@ -1,10 +1,24 @@
 import { useRef, useEffect, type MutableRefObject } from 'react'
 import { useFrame } from '@react-three/fiber'
-import { RigidBody, RapierRigidBody, CuboidCollider } from '@react-three/rapier'
+import { RigidBody, RapierRigidBody, CuboidCollider, ConvexHullCollider } from '@react-three/rapier'
 import * as THREE from 'three'
 import { TABLE } from './Table'
 import { ballPos, ballVel } from '../ballState'
 import { useGameStore, type Difficulty } from '../store'
+
+// Octagonal foot — π/8 offset aligns a flat face with ±Z so front-on = straight kick,
+// 45°-angled adjacent faces give clean diagonal deflection on side contact.
+const OCT_R = 0.14   // circumradius in XZ plane
+const OCT_H = 0.1    // half-height in Y
+const OCT_FOOT_VERTS = (() => {
+  const v: number[] = []
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2 + Math.PI / 8  // offset so flat face faces ±Z
+    v.push(OCT_R * Math.cos(a), OCT_H,  OCT_R * Math.sin(a))
+    v.push(OCT_R * Math.cos(a), -OCT_H, OCT_R * Math.sin(a))
+  }
+  return new Float32Array(v)
+})()
 
 const SPIN_LIMIT   = Math.PI * 0.55
 const SLIDE_SENS   = 0.008
@@ -78,7 +92,7 @@ function playerXOffsets(count: number): number[] {
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface Control { slide: number; spin: number }
-type Phase = 'idle' | 'firing' | 'returning'
+type Phase = 'idle' | 'firing' | 'returning' | 'scoop-back' | 'scoop-slide' | 'scoop-kick'
 
 interface AiRodState {
   slide: number
@@ -117,6 +131,32 @@ function tickKickWithDelay(state: AiRodState, trigger: boolean, delta: number, d
   }
 }
 
+// ─── Scoop state machine — rotate back → slide over ball → kick forward ──────
+
+function tickScoopKick(state: AiRodState, targetSlide: number, speed: number, delta: number) {
+  switch (state.phase) {
+    case 'scoop-back':
+      state.spin += MAX_SPIN_VEL * delta
+      if (state.spin >= SPIN_LIMIT) {
+        state.spin = SPIN_LIMIT
+        state.phase = 'scoop-slide'
+      }
+      break
+    case 'scoop-slide':
+      state.spin = SPIN_LIMIT
+      state.slide = THREE.MathUtils.lerp(state.slide, targetSlide, speed * delta)
+      if (Math.abs(state.slide - targetSlide) < 0.06) state.phase = 'scoop-kick'
+      break
+    case 'scoop-kick':
+      state.spin -= MAX_SPIN_VEL * delta
+      if (state.spin <= -SPIN_LIMIT) {
+        state.spin = -SPIN_LIMIT
+        state.phase = 'returning'
+      }
+      break
+  }
+}
+
 // ─── Rule-based AI ───────────────────────────────────────────────────────────
 
 function tickRuleBasedAI(state: AiRodState, rodDef: typeof RODS[0], delta: number, difficulty: Difficulty) {
@@ -132,7 +172,20 @@ function tickRuleBasedAI(state: AiRodState, rodDef: typeof RODS[0], delta: numbe
   const dz = rodDef.z - bz
   const offsets = playerXOffsets(rodDef.count)
 
-  const ballInFront = bz >= rodDef.z - 0.12
+  // ── Scoop sequence: ball slightly behind → back → slide → kick ───────────
+  if (state.phase === 'scoop-back' || state.phase === 'scoop-slide' || state.phase === 'scoop-kick') {
+    let bestOff = offsets[0], minDist = Infinity
+    for (const off of offsets) {
+      const d = Math.abs(bx - (state.slide + off))
+      if (d < minDist) { minDist = d; bestOff = off }
+    }
+    const targetSlide = Math.max(-lim, Math.min(lim, bx - bestOff))
+    tickScoopKick(state, targetSlide, speed * 1.5, delta)
+    return
+  }
+
+  const ballInFront       = bz >= rodDef.z - 0.12
+  const ballSlightlyBehind = !ballInFront && bz > rodDef.z - 0.5
 
   let target: number
   if (!ballInFront) {
@@ -165,6 +218,14 @@ function tickRuleBasedAI(state: AiRodState, rodDef: typeof RODS[0], delta: numbe
 
   const movingAway = Math.abs(vz) > 0.4 && (vz * dz < 0)
   const aligned    = offsets.some(o => Math.abs(state.slide + o - bx) < AI_KICK_X)
+
+  // Trigger scoop when ball is slightly behind this rod
+  if (state.phase === 'idle' && ballSlightlyBehind) {
+    state.phase = 'scoop-back'
+    state.idleTimer = 0
+    return
+  }
+
   tickKickWithDelay(state, ballInFront && !movingAway && Math.abs(bz - rodDef.z) < AI_KICK_Z && aligned, delta, cfg.kickDelay)
 }
 
@@ -181,7 +242,10 @@ function RodAssembly({
   const lim     = slideLimit(rodDef.count)
   const color   = rodDef.team === 'left' ? '#3b82f6' : '#ef4444'
   const accent  = rodDef.team === 'left' ? '#93c5fd' : '#fca5a5'
+  const shorts  = rodDef.team === 'left' ? '#1a3a70' : '#701a1a'
   const offsets = playerXOffsets(rodDef.count)
+  // Red attacks +Z, Blue attacks -Z — face toward the opposing goal
+  const fz      = rodDef.team === 'right' ? 1 : -1
 
   useFrame(() => {
     if (!rb.current) return
@@ -197,19 +261,67 @@ function RodAssembly({
     <RigidBody ref={rb} type="kinematicPosition" position={[0, ROD_Y, rodDef.z]} colliders={false}>
       {offsets.map((xOff, i) => (
         <group key={i} position={[xOff, 0, 0]}>
+          {/* Physics colliders (unchanged) */}
           <CuboidCollider args={[0.14, 0.27, 0.04]} position={[0, -0.26, 0]} />
-          <CuboidCollider args={[0.15, 0.06, 0.04]} position={[0, -0.78, 0]} />
+          <ConvexHullCollider args={[OCT_FOOT_VERTS]} position={[0, -0.80, 0]} />
+
+          {/* Jersey body */}
           <mesh castShadow position={[0, -0.26, 0]}>
             <boxGeometry args={[0.28, 0.54, 0.08]} />
             <meshStandardMaterial color={color} roughness={0.4} />
           </mesh>
-          <mesh castShadow position={[0, 0.22, 0]}>
-            <sphereGeometry args={[0.14, 8, 8]} />
+          {/* Chest stripe */}
+          <mesh position={[0, -0.14, fz * 0.041]}>
+            <boxGeometry args={[0.20, 0.06, 0.002]} />
+            <meshStandardMaterial color={accent} roughness={0.3} />
+          </mesh>
+          {/* Collar / neck */}
+          <mesh castShadow position={[0, 0.04, 0]}>
+            <boxGeometry args={[0.12, 0.07, 0.08]} />
             <meshStandardMaterial color="#f5d0a9" roughness={0.5} />
           </mesh>
-          <mesh castShadow position={[0, -0.78, 0]}>
-            <boxGeometry args={[0.30, 0.12, 0.08]} />
-            <meshStandardMaterial color={accent} roughness={0.3} />
+
+          {/* Head */}
+          <mesh castShadow position={[0, 0.16, 0]}>
+            <sphereGeometry args={[0.14, 12, 12]} />
+            <meshStandardMaterial color="#f5d0a9" roughness={0.5} />
+          </mesh>
+          {/* Hair */}
+          {/* <mesh castShadow position={[0, 0.325, fz * -0.02]}>
+            <boxGeometry args={[0.25, 0.09, 0.21]} />
+            <meshStandardMaterial color="#3d2008" roughness={0.9} />
+          </mesh> */}
+          {/* Eyes */}
+          {/* <mesh position={[-0.043, 0.235, fz * 0.122]}>
+            <sphereGeometry args={[0.023, 6, 6]} />
+            <meshStandardMaterial color="#111" roughness={0.1} />
+          </mesh>
+          <mesh position={[0.043, 0.235, fz * 0.122]}>
+            <sphereGeometry args={[0.023, 6, 6]} />
+            <meshStandardMaterial color="#111" roughness={0.1} />
+          </mesh> */}
+
+          {/* Shorts */}
+          <mesh castShadow position={[0, -0.565, 0]}>
+            <boxGeometry args={[0.27, 0.10, 0.10]} />
+            <meshStandardMaterial color={shorts} roughness={0.6} />
+          </mesh>
+
+          {/* Left leg (skin) */}
+          <mesh castShadow position={[-0.065, -0.70, 0]}>
+            <boxGeometry args={[0.09, 0.18, 0.08]} />
+            <meshStandardMaterial color="#f5d0a9" roughness={0.5} />
+          </mesh>
+          {/* Right leg (skin) */}
+          <mesh castShadow position={[0.065, -0.70, 0]}>
+            <boxGeometry args={[0.09, 0.18, 0.08]} />
+            <meshStandardMaterial color="#f5d0a9" roughness={0.5} />
+          </mesh>
+
+          {/* Octagonal foot — flat ±Z faces for straight kick, 45° faces for diagonal */}
+          <mesh castShadow position={[0, -0.80, 0]}>
+            <cylinderGeometry args={[OCT_R, OCT_R, OCT_H * 2, 8, 1, false, Math.PI / 8]} />
+            <meshStandardMaterial color="#111" roughness={0.4} />
           </mesh>
         </group>
       ))}

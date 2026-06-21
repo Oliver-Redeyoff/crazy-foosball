@@ -10,10 +10,10 @@ export const TABLE = {
   floorY:    0,
   goalW:     2,
   goalDepth: 0.8,
-  goalH:     1,
+  goalH:     1.3,
 }
 
-const CEILING = 3.0
+const CEILING = 2.0
 
 // All physics + visuals whose size depends on goal dimensions.
 // Keyed externally so it remounts (reinitialising Rapier bodies) when twist changes.
@@ -54,8 +54,8 @@ function GoalWalls({ goalW, goalH }: { goalW: number; goalH: number }) {
       </RigidBody>
 
       {/* Goal box visuals */}
-      <GoalBox position={[0, 0, -hl]} color="#1a4a8a" goalW={goalW} goalH={goalH} />
-      <GoalBox position={[0, 0,  hl]} color="#8a1a1a" goalW={goalW} goalH={goalH} />
+      <GoalBox position={[0, 0, -hl]} color="#8a1a1a" goalW={goalW} goalH={goalH} />
+      <GoalBox position={[0, 0,  hl]} color="#1a4a8a" goalW={goalW} goalH={goalH} />
 
       {/* Invisible full-height end walls — negative Z */}
       <RigidBody type="fixed" restitution={0.4} friction={0.1}>
@@ -174,30 +174,96 @@ function GoalBox({ position, color, goalW, goalH }: {
   goalH: number
 }) {
   const gd   = TABLE.goalDepth
+  const pw   = 0.07   // post / crossbar width
   const wt   = TABLE.wallT
   const sign = position[2] < 0 ? -1 : 1
 
   return (
     <group position={position}>
-      <mesh position={[0, -goalH / 2, sign * gd / 2]}>
-        <boxGeometry args={[goalW, wt, gd]} />
-        <meshStandardMaterial color={color} />
+      {/* Physics — net walls with very low restitution so the ball dies on contact */}
+      <RigidBody type="fixed" restitution={0.05} friction={0.9}>
+        {/* Back net */}
+        <CuboidCollider args={[goalW / 2, goalH / 2, wt / 2]}
+          position={[0, goalH / 2, sign * gd]} />
+        {/* Left side net */}
+        <CuboidCollider args={[wt / 2, goalH / 2, gd / 2]}
+          position={[-goalW / 2, goalH / 2, sign * gd / 2]} />
+        {/* Right side net */}
+        <CuboidCollider args={[wt / 2, goalH / 2, gd / 2]}
+          position={[goalW / 2, goalH / 2, sign * gd / 2]} />
+        {/* Top net */}
+        <CuboidCollider args={[goalW / 2, wt / 2, gd / 2]}
+          position={[0, goalH, sign * gd / 2]} />
+        {/* Floor (main floor doesn't extend into goal area) */}
+        <CuboidCollider args={[goalW / 2, wt / 2, gd / 2]}
+          position={[0, -wt / 2, sign * gd / 2]} />
+      </RigidBody>
+      {/* Green pitch floor */}
+      <mesh receiveShadow position={[0, 0.002, sign * gd / 2]}>
+        <boxGeometry args={[goalW, 0.02, gd]} />
+        <meshStandardMaterial color="#2d6a2d" roughness={0.9} />
       </mesh>
-      <mesh position={[0, goalH / 2, sign * (gd + wt / 2)]}>
-        <boxGeometry args={[goalW, goalH + wt, wt]} />
-        <meshStandardMaterial color={color} />
+
+      {/* Front posts & crossbar (at the goal mouth) */}
+      <mesh castShadow position={[-goalW / 2, goalH / 2, 0]}>
+        <boxGeometry args={[pw, goalH, pw]} />
+        <meshStandardMaterial color={color} roughness={0.25} metalness={0.65} />
       </mesh>
-      <mesh position={[-goalW / 2 - wt / 2, goalH / 2, sign * gd / 2]}>
-        <boxGeometry args={[wt, goalH + wt, gd]} />
-        <meshStandardMaterial color={color} />
+      <mesh castShadow position={[goalW / 2, goalH / 2, 0]}>
+        <boxGeometry args={[pw, goalH, pw]} />
+        <meshStandardMaterial color={color} roughness={0.25} metalness={0.65} />
       </mesh>
-      <mesh position={[goalW / 2 + wt / 2, goalH / 2, sign * gd / 2]}>
-        <boxGeometry args={[wt, goalH + wt, gd]} />
-        <meshStandardMaterial color={color} />
+      <mesh castShadow position={[0, goalH, 0]}>
+        <boxGeometry args={[goalW + pw, pw, pw]} />
+        <meshStandardMaterial color={color} roughness={0.25} metalness={0.65} />
       </mesh>
-      <mesh position={[0, goalH + wt / 2, sign * gd / 2]}>
-        <boxGeometry args={[goalW + wt * 2, wt, gd]} />
-        <meshStandardMaterial color={color} />
+
+      {/* Back posts & crossbar */}
+      <mesh castShadow position={[-goalW / 2, goalH / 2, sign * gd]}>
+        <boxGeometry args={[pw, goalH, pw]} />
+        <meshStandardMaterial color={color} roughness={0.25} metalness={0.65} />
+      </mesh>
+      <mesh castShadow position={[goalW / 2, goalH / 2, sign * gd]}>
+        <boxGeometry args={[pw, goalH, pw]} />
+        <meshStandardMaterial color={color} roughness={0.25} metalness={0.65} />
+      </mesh>
+      <mesh castShadow position={[0, goalH, sign * gd]}>
+        <boxGeometry args={[goalW + pw, pw, pw]} />
+        <meshStandardMaterial color={color} roughness={0.25} metalness={0.65} />
+      </mesh>
+
+      {/* Top side rails connecting front to back */}
+      <mesh castShadow position={[-goalW / 2, goalH, sign * gd / 2]}>
+        <boxGeometry args={[pw, pw, gd]} />
+        <meshStandardMaterial color={color} roughness={0.25} metalness={0.65} />
+      </mesh>
+      <mesh castShadow position={[goalW / 2, goalH, sign * gd / 2]}>
+        <boxGeometry args={[pw, pw, gd]} />
+        <meshStandardMaterial color={color} roughness={0.25} metalness={0.65} />
+      </mesh>
+
+      {/* Net — back */}
+      <mesh position={[0, goalH / 2, sign * (gd - pw / 2)]}>
+        <planeGeometry args={[goalW - pw, goalH, 16, 10]} />
+        <meshBasicMaterial color="#ffffff" wireframe />
+      </mesh>
+      {/* Net — left side */}
+      <mesh position={[-goalW / 2 + pw / 2, goalH / 2, sign * gd / 2]}
+            rotation={[0, Math.PI / 2, 0]}>
+        <planeGeometry args={[gd, goalH, 8, 10]} />
+        <meshBasicMaterial color="#ffffff" wireframe />
+      </mesh>
+      {/* Net — right side */}
+      <mesh position={[goalW / 2 - pw / 2, goalH / 2, sign * gd / 2]}
+            rotation={[0, -Math.PI / 2, 0]}>
+        <planeGeometry args={[gd, goalH, 8, 10]} />
+        <meshBasicMaterial color="#ffffff" wireframe />
+      </mesh>
+      {/* Net — top */}
+      <mesh position={[0, goalH - pw / 2, sign * gd / 2]}
+            rotation={[-Math.PI / 2, 0, 0]}>
+        <planeGeometry args={[goalW - pw, gd, 16, 8]} />
+        <meshBasicMaterial color="#ffffff" wireframe />
       </mesh>
     </group>
   )
