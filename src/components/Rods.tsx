@@ -5,6 +5,7 @@ import * as THREE from 'three'
 import { TABLE } from './Table'
 import { ballPos, ballVel } from '../ballState'
 import { useGameStore, type Difficulty } from '../store'
+import { touchControls } from '../touchState'
 
 // Octagonal foot — π/8 offset aligns a flat face with ±Z so front-on = straight kick,
 // 45°-angled adjacent faces give clean diagonal deflection on side contact.
@@ -357,25 +358,67 @@ export function Rods() {
 
   const currentTwist = useGameStore((s) => s.currentTwist)
   const difficulty   = useGameStore((s) => s.difficulty)
+  const resetKey     = useGameStore((s) => s.resetKey)
   const reversedRef    = useRef(false)
   const difficultyRef  = useRef<Difficulty>('medium')
+
   useEffect(() => { reversedRef.current   = currentTwist === 'reverseControls' }, [currentTwist])
   useEffect(() => { difficultyRef.current = difficulty }, [difficulty])
 
   // Shared player spin state (all player rods rotate together)
-  const lastClientY = useRef(-1)
-  const spinRef     = useRef(0)
-  const angVel      = useRef(0)
-  const keyA        = useRef(false)
-  const keyD        = useRef(false)
+  const lastClientY  = useRef(-1)
+  const lastClientX  = useRef(-1)
+  const lastTouchPos = useRef({ x: -1, y: -1 })
+  const spinRef      = useRef(0)
+  const angVel       = useRef(0)
+  const keyA         = useRef(false)
+  const keyD         = useRef(false)
+
+  // Reset all rod positions and AI state when a new game starts.
+  useEffect(() => {
+    playerSlides.forEach(s => { s.current = 0 })
+    spinRef.current = 0
+    angVel.current  = 0
+    aiState.current.forEach(s => {
+      s.slide = 0; s.spin = 0; s.phase = 'idle'; s.targetSpin = 0; s.idleTimer = 0
+    })
+  }, [resetKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
+    // ── Mouse drag: horizontal in portrait, vertical in landscape ────────────
     const onMouseMove = (e: MouseEvent) => {
-      if (lastClientY.current < 0) { lastClientY.current = e.clientY; return }
-      const delta = (e.clientY - lastClientY.current) * SLIDE_SENS * (reversedRef.current ? -1 : 1)
-      playerSlides.forEach(s => { s.current += delta })
-      lastClientY.current = e.clientY
+      const rev = reversedRef.current ? -1 : 1
+      if (touchControls.isPortrait) {
+        if (lastClientX.current < 0) { lastClientX.current = e.clientX; return }
+        const delta = (e.clientX - lastClientX.current) * SLIDE_SENS * rev
+        playerSlides.forEach(s => { s.current += delta })
+        lastClientX.current = e.clientX
+      } else {
+        if (lastClientY.current < 0) { lastClientY.current = e.clientY; return }
+        const delta = (e.clientY - lastClientY.current) * SLIDE_SENS * rev
+        playerSlides.forEach(s => { s.current += delta })
+        lastClientY.current = e.clientY
+      }
     }
+
+    // ── Touch drag: X in portrait, Y in landscape ─────────────────────────
+    const onTouchStart = (e: TouchEvent) => {
+      const t = e.touches[0]
+      lastTouchPos.current = { x: t.clientX, y: t.clientY }
+    }
+    const onTouchMove = (e: TouchEvent) => {
+      const t = e.touches[0]
+      if (lastTouchPos.current.x < 0) return
+      const rev = reversedRef.current ? -1 : 1
+      const delta = touchControls.isPortrait
+        ? (t.clientX - lastTouchPos.current.x) * SLIDE_SENS * rev
+        : (t.clientY - lastTouchPos.current.y) * SLIDE_SENS * rev
+      playerSlides.forEach(s => { s.current += delta })
+      lastTouchPos.current = { x: t.clientX, y: t.clientY }
+    }
+    const onTouchEnd = () => { lastTouchPos.current = { x: -1, y: -1 } }
+
+    // ── Keyboard spin ─────────────────────────────────────────────────────
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.repeat) return
       if (e.code === 'KeyA') keyA.current = true
@@ -385,13 +428,22 @@ export function Rods() {
       if (e.code === 'KeyA') keyA.current = false
       if (e.code === 'KeyD') keyD.current = false
     }
+
     window.addEventListener('mousemove', onMouseMove)
+    window.addEventListener('touchstart', onTouchStart, { passive: true })
+    window.addEventListener('touchmove',  onTouchMove,  { passive: true })
+    window.addEventListener('touchend',   onTouchEnd)
+    window.addEventListener('touchcancel', onTouchEnd)
     window.addEventListener('keydown', onKeyDown)
-    window.addEventListener('keyup', onKeyUp)
+    window.addEventListener('keyup',   onKeyUp)
     return () => {
       window.removeEventListener('mousemove', onMouseMove)
+      window.removeEventListener('touchstart', onTouchStart)
+      window.removeEventListener('touchmove',  onTouchMove)
+      window.removeEventListener('touchend',   onTouchEnd)
+      window.removeEventListener('touchcancel', onTouchEnd)
       window.removeEventListener('keydown', onKeyDown)
-      window.removeEventListener('keyup', onKeyUp)
+      window.removeEventListener('keyup',   onKeyUp)
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -402,10 +454,12 @@ export function Rods() {
     const SPRING   = 220
     const SPIN_MAX = Math.PI / 2
 
-    const dir = reversedRef.current ? -1 : 1
-    if (keyA.current) angVel.current -= dir * TORQUE * delta
-    if (keyD.current) angVel.current += dir * TORQUE * delta
-    if (!keyA.current && !keyD.current) {
+    const dir     = reversedRef.current ? -1 : 1
+    const doBack  = keyA.current || touchControls.spinBack
+    const doFwd   = keyD.current || touchControls.spinFwd
+    if (doBack) angVel.current -= dir * TORQUE * delta
+    if (doFwd)  angVel.current += dir * TORQUE * delta
+    if (!doBack && !doFwd) {
       angVel.current -= SPRING * spinRef.current * delta
     }
     angVel.current *= Math.max(0, 1 - ANG_DAMP * delta)

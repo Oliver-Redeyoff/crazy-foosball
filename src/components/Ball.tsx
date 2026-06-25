@@ -129,9 +129,20 @@ export function Ball({ index = 0 }: { index?: number }) {
   const phase        = useGameStore((s) => s.phase)
   const resetBall    = useGameStore((s) => s.resetBall)
   const currentTwist = useGameStore((s) => s.currentTwist)
+  const resetKey     = useGameStore((s) => s.resetKey)
 
   const isIce = currentTwist === 'iceRink'
   const start = BALL_STARTS[index] ?? BALL_STARTS[0]
+
+  // Immediate reset when a new game starts (Play pressed from menu).
+  useEffect(() => {
+    if (!rb.current) return
+    rb.current.setTranslation({ x: start[0], y: start[1], z: start[2] }, true)
+    rb.current.setLinvel({ x: 0, y: 0, z: 0 }, true)
+    rb.current.setAngvel({ x: 0, y: 0, z: 0 }, true)
+    const angle = Math.random() * Math.PI * 2
+    rb.current.applyImpulse({ x: Math.cos(angle) * 0.06, y: 0, z: Math.sin(angle) * 0.06 }, true)
+  }, [resetKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (phase !== 'scored' || !rb.current) return

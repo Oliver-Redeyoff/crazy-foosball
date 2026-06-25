@@ -59,9 +59,17 @@ export function ScoreUI() {
       <div style={styles.controls}>
         <div style={styles.controlCol}>
           <strong>Controls (Blue)</strong>
-          <span>Mouse ↑↓ — slide players</span>
-          <span>A — rotate backwards 90°</span>
-          <span>D — kick forward 90°</span>
+          {'ontouchstart' in window
+            ? <span>Drag — slide players</span>
+            : <span>Mouse ↑↓ — slide players</span>
+          }
+          {'ontouchstart' in window
+            ? <span>↺ ↻ buttons — spin</span>
+            : <>
+                <span>A — rotate backwards 90°</span>
+                <span>D — kick forward 90°</span>
+              </>
+          }
         </div>
       </div>
 

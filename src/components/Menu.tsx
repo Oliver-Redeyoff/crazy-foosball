@@ -14,8 +14,8 @@ const DIFFICULTIES: { id: Difficulty; label: string; emoji: string; desc: string
 
 export function Menu() {
   const startGame = useGameStore((s) => s.startGame)
-  const [mode, setMode]         = useState<GameMode>('crazy')
-  const [difficulty, setDiff]   = useState<Difficulty>('medium')
+  const [mode, setMode]         = useState<GameMode>('classic')
+  const [difficulty, setDiff]   = useState<Difficulty>('easy')
 
   return (
     <div style={s.overlay}>

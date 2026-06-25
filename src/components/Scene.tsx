@@ -1,7 +1,8 @@
 import { useRef, useEffect } from 'react'
-import { Canvas, useFrame } from '@react-three/fiber'
+import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { Physics, useRapier } from '@react-three/rapier'
 import { OrbitControls, Environment } from '@react-three/drei'
+import * as THREE from 'three'
 import { Table } from './Table'
 import { Ball } from './Ball'
 import { Rods } from './Rods'
@@ -9,15 +10,33 @@ import { GoalSensors } from './GoalSensors'
 import { useGameStore } from '../store'
 import { ballCount as getBallCount } from '../twists'
 
-const CAM_BASE = { x: 4, y: 8, z: 0 }
+const CAM = {
+  landscape: { pos: [4, 8, 0] as [number, number, number], fov: 50, target: new THREE.Vector3(0, 0.3, 0) },
+  portrait:  { pos: [0, 11, 5] as [number, number, number], fov: 58, target: new THREE.Vector3(0, 0,   0) },
+}
 
-function EarthquakeCamera() {
+// Sets camera position + FOV on mount and whenever orientation changes.
+function CameraController({ isPortrait }: { isPortrait: boolean }) {
+  const { camera } = useThree()
+  useEffect(() => {
+    const cfg = isPortrait ? CAM.portrait : CAM.landscape
+    camera.position.set(...cfg.pos)
+    camera.lookAt(cfg.target)
+    ;(camera as THREE.PerspectiveCamera).fov = cfg.fov
+    ;(camera as THREE.PerspectiveCamera).updateProjectionMatrix()
+  }, [isPortrait, camera])
+  return null
+}
+
+function EarthquakeCamera({ isPortrait }: { isPortrait: boolean }) {
   const currentTwist = useGameStore((s) => s.currentTwist)
   const offset = useRef({ x: 0, y: 0, z: 0 })
   const target = useRef({ x: 0, y: 0, z: 0 })
   const timer  = useRef(0)
 
   useFrame(({ camera }, delta) => {
+    const base = isPortrait ? CAM.portrait.pos : CAM.landscape.pos
+
     if (currentTwist === 'earthquake') {
       timer.current += delta
       if (timer.current > 0.07) {
@@ -36,9 +55,9 @@ function EarthquakeCamera() {
       offset.current.z *= 0.82
     }
     camera.position.set(
-      CAM_BASE.x + offset.current.x,
-      CAM_BASE.y + offset.current.y,
-      CAM_BASE.z + offset.current.z,
+      base[0] + offset.current.x,
+      base[1] + offset.current.y,
+      base[2] + offset.current.z,
     )
   })
 
@@ -56,7 +75,7 @@ function GravityController() {
   return null
 }
 
-export function Scene() {
+export function Scene({ isPortrait }: { isPortrait: boolean }) {
   const currentTwist = useGameStore((s) => s.currentTwist)
   const count = getBallCount(currentTwist)
 
@@ -82,7 +101,8 @@ export function Scene() {
 
       <Environment preset="warehouse" />
 
-      <EarthquakeCamera />
+      <CameraController isPortrait={isPortrait} />
+      <EarthquakeCamera isPortrait={isPortrait} />
 
       <Physics gravity={[0, -9.81, 0]} debug={false}>
         <GravityController />

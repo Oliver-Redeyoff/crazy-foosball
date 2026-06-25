@@ -21,6 +21,7 @@ interface GameState {
   appState: 'menu' | 'game'
   gameMode: GameMode
   difficulty: Difficulty
+  resetKey: number
   startGame: (mode: GameMode, difficulty: Difficulty) => void
   incrementScore: (side: 'left' | 'right') => void
   resetBall: () => void
@@ -42,11 +43,12 @@ export const useGameStore = create<GameState>((set) => ({
   currentTwist: null,
   pendingTwist: null,
   appState: 'menu',
-  gameMode: 'crazy',
-  difficulty: 'medium',
+  gameMode: 'classic',
+  difficulty: 'easy',
+  resetKey: 0,
 
   startGame: (mode, difficulty) =>
-    set({ appState: 'game', gameMode: mode, difficulty, scoreLeft: 0, scoreRight: 0, phase: 'playing', lastScorer: null, winner: null, currentTwist: null, pendingTwist: null }),
+    set((s) => ({ appState: 'game', gameMode: mode, difficulty, scoreLeft: 0, scoreRight: 0, phase: 'playing', lastScorer: null, winner: null, currentTwist: null, pendingTwist: null, resetKey: s.resetKey + 1 })),
 
   incrementScore: (side) =>
     set((s) => {
