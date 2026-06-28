@@ -369,6 +369,7 @@ export function Rods() {
   const lastClientY  = useRef(-1)
   const lastClientX  = useRef(-1)
   const lastTouchPos = useRef({ x: -1, y: -1 })
+  const slideId      = useRef<number | null>(null) // identifier of the finger driving slide
   const spinRef      = useRef(0)
   const angVel       = useRef(0)
   const keyA         = useRef(false)
@@ -402,13 +403,21 @@ export function Rods() {
     }
 
     // ── Touch drag: X in portrait, Y in landscape ─────────────────────────
+    // Tracks a specific finger by identifier so spin button presses on other
+    // fingers don't steal slide control.
     const onTouchStart = (e: TouchEvent) => {
-      const t = e.touches[0]
-      lastTouchPos.current = { x: t.clientX, y: t.clientY }
+      if (slideId.current !== null) return // already have a slide finger
+      for (const t of Array.from(e.changedTouches)) {
+        if ((t.target as Element)?.closest?.('button')) continue // skip button touches
+        slideId.current = t.identifier
+        lastTouchPos.current = { x: t.clientX, y: t.clientY }
+        break
+      }
     }
     const onTouchMove = (e: TouchEvent) => {
-      const t = e.touches[0]
-      if (lastTouchPos.current.x < 0) return
+      if (slideId.current === null) return
+      const t = Array.from(e.touches).find(t => t.identifier === slideId.current)
+      if (!t) return
       const rev = reversedRef.current ? -1 : 1
       const delta = touchControls.isPortrait
         ? (t.clientX - lastTouchPos.current.x) * SLIDE_SENS * rev
@@ -416,7 +425,15 @@ export function Rods() {
       playerSlides.forEach(s => { s.current += delta })
       lastTouchPos.current = { x: t.clientX, y: t.clientY }
     }
-    const onTouchEnd = () => { lastTouchPos.current = { x: -1, y: -1 } }
+    const onTouchEnd = (e: TouchEvent) => {
+      for (const t of Array.from(e.changedTouches)) {
+        if (t.identifier === slideId.current) {
+          slideId.current = null
+          lastTouchPos.current = { x: -1, y: -1 }
+          break
+        }
+      }
+    }
 
     // ── Keyboard spin ─────────────────────────────────────────────────────
     const onKeyDown = (e: KeyboardEvent) => {

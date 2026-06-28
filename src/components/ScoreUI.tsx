@@ -21,13 +21,13 @@ export function ScoreUI() {
       {/* Scoreboard */}
       <div style={styles.scoreboard}>
         <div style={{ ...styles.team, ...styles.teamLeft }}>
-          <span style={styles.teamName}>BLUE</span>
+          <span style={styles.teamName}>RED</span>
           <span style={styles.score}>{scoreLeft}</span>
         </div>
         <div style={styles.divider}>:</div>
         <div style={{ ...styles.team, ...styles.teamRight }}>
           <span style={styles.score}>{scoreRight}</span>
-          <span style={styles.teamName}>RED</span>
+          <span style={styles.teamName}>BLUE</span>
         </div>
       </div>
 
@@ -36,7 +36,7 @@ export function ScoreUI() {
         <div style={styles.goalBanner}>
           <div style={styles.goalText}>GOAL!</div>
           <div style={styles.goalSub}>
-            {lastScorer === 'left' ? '🔵 Blue scores!' : '🔴 Red scores!'}
+            {lastScorer === 'left' ? '🔴 Red scores!' : '🔵 Blue scores!'}
           </div>
           {incomingTwist && (
             <div style={styles.twistAnnounce}>
@@ -81,8 +81,8 @@ export function ScoreUI() {
       {/* Winner overlay */}
       {winner && (
         <div style={styles.winOverlay}>
-          <div style={styles.winEmoji}>{winner === 'left' ? '🔵' : '🔴'}</div>
-          <div style={styles.winText}>{winner === 'left' ? 'BLUE' : 'RED'} WINS!</div>
+          <div style={styles.winEmoji}>{winner === 'left' ? '🔴' : '🔵'}</div>
+          <div style={styles.winText}>{winner === 'left' ? 'RED' : 'BLUE'} WINS!</div>
           <div style={styles.winScore}>{scoreLeft} — {scoreRight}</div>
           <div style={styles.winBtns}>
             <button style={styles.winBtnPrimary} onClick={playAgain}>Play Again</button>
@@ -142,11 +142,19 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#666',
   },
   goalBanner: {
-    marginTop: 20,
+    position: 'fixed',
+    top: '50%',
+    left: '50%',
+    transform: 'translate(-50%, -50%)',
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
     gap: 8,
+    background: 'rgba(0,0,0,0.45)',
+    backdropFilter: 'blur(12px)',
+    borderRadius: 20,
+    padding: '28px 48px',
+    border: '1px solid rgba(255,255,255,0.1)',
   },
   goalText: {
     fontSize: 56,
